@@ -46,12 +46,13 @@ go run ./cmd -in ./example.md -out ./output/example-dark.png -theme github-dark
 ### 字体说明：
 
 - `v2/font` 中已经静态嵌入了一份中文字体，CLI 默认会启用它。
-- 如果留空 `-embed-font`，程序会回退到内置 Go 字体；英文可以正常渲染，但中文可能无法正常显示。
 - 如果你想覆盖内置字体，也可以显式指定外部字体文件：
-
 ```cmd
 go run ./cmd -in ./example.md -out ./output/example.png -font  example.ttf
 ```
+- 你可以在`gmd.Options.Fonts`中传入多个字体,依次代表`regular` `bold` `italic` `bolditalic` `mono`的绘制字体,如果留空则用第一个字体代替
+
+
 ### 在你的代码中使用gmd
 
 ```go
