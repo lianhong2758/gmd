@@ -60,10 +60,10 @@ import (
 	"github.com/lianhong2758/gmd/font"
 )
 
-	r, err := marktoimage.New(renderer.Options{
-		ThemeName: marktoimage.ThemeGitHubDark,
+	r, err := gmd.New(gmd.Options{
+		ThemeName: gmd.ThemeGitHubDark,
 		Width:     1200,
 		Fonts:     [][]byte{font.TTF},
 	})
-	img, err := r.Render(mdstring)
+	img, err := r.Render(mdbyte)
 ```
