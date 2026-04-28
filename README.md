@@ -16,7 +16,7 @@ gmd是一个纯 Go 的 Markdown 转图片项目
 
 - 标题
 - 段落与自动换行
-- **粗体** 、*斜体*、 、`行内代码`
+- **粗体** 、*斜体* 、`行内代码`
 - 有序列表与无序列表
 - 引用块
 - 代码块
@@ -45,7 +45,7 @@ go run ./cmd -in ./example.md -out ./output/example-dark.png -theme github-dark
 
 ### 字体说明：
 
-- `v2/font` 中已经静态嵌入了一份中文字体，CLI 默认会启用它。
+- `font` 中已经静态嵌入了一份中文字体，CLI 默认会启用它。
 - 如果你想覆盖内置字体，也可以显式指定外部字体文件：
 ```cmd
 go run ./cmd -in ./example.md -out ./output/example.png -font  example.ttf
