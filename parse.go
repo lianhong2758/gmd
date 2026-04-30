@@ -213,11 +213,10 @@ func (r *Renderer) parseInlines(parent ast.Node, source []byte, inherited inline
 			}
 		case *ast.Emphasis:
 			next := inherited
-			if n.Level >= 1 {
-				next.Italic = true
-			}
 			if n.Level >= 2 {
 				next.Bold = true
+			} else {
+				next.Italic = true
 			}
 			spans = append(spans, r.parseInlines(n, source, next)...)
 		case *ast.CodeSpan:

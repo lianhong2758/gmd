@@ -34,7 +34,7 @@ func main() {
 	r, err := marktoimage.New(marktoimage.Options{
 		ThemeName: marktoimage.ThemeGitHubDark,
 		Width:     1200,
-		Fonts:     [][]byte{markfont.TTF},
+		Font:      markfont.TTF,
 	})
 	if err != nil {
 		fmt.Printf("初始化渲染器失败: %v\n", err)
@@ -47,7 +47,6 @@ func main() {
 
 	fmt.Printf("已生成图片: %s\n", "markdown.png")
 }
-
 ` + "```" + `
 ---
 ![RUNOOB 图标](https://static.jyshare.com/images/runoob-logo.png)
@@ -80,22 +79,20 @@ func main() {
 		fmt.Fprintf(os.Stderr, "主题配置无效: %v\n", err)
 		os.Exit(1)
 	}
-	fontdata := [][]byte{}
+	fontdata := markfont.TTF
 	if *font != "" {
 		b, err := os.ReadFile(*font)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "字体配置无效: %v\n", err)
 			os.Exit(1)
 		}
-		fontdata = append(fontdata, b)
-	} else {
-		fontdata = append(fontdata, markfont.TTF)
+		fontdata = b
 	}
 
 	r, err := gmd.New(gmd.Options{
 		ThemeName: themeName,
 		Width:     *width,
-		Fonts:     fontdata,
+		Font:      fontdata,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "初始化渲染器失败: %v\n", err)

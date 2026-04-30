@@ -15,17 +15,13 @@ import (
 	"github.com/FloatTech/gg"
 	"github.com/yuin/goldmark"
 	"golang.org/x/image/font"
-	"golang.org/x/image/font/gofont/gobold"
-	"golang.org/x/image/font/gofont/gobolditalic"
-	"golang.org/x/image/font/gofont/goitalic"
-	"golang.org/x/image/font/gofont/gomono"
 	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
 )
 
-// FontFamily 表示要使用的字体族。
-// 项目直接使用 Go 自带字体字节，这样不依赖系统字体文件。
+// FontFamily 表示文本样式标签。
+// 所有样式都共用 Options.Font 注册的同一个字体。
 type FontFamily string
 
 const (
@@ -41,7 +37,7 @@ type Options struct {
 	Theme     Theme
 	ThemeName ThemeName
 	Width     int
-	Fonts     [][]byte
+	Font      []byte
 }
 
 // Renderer 负责 Markdown 的解析、布局与绘制。
@@ -66,7 +62,7 @@ func New(opts Options) (*Renderer, error) {
 		return nil, err
 	}
 
-	fonts, err := newFontManager(opts.Fonts)
+	fonts, err := newFontManager(opts.Font)
 	if err != nil {
 		return nil, err
 	}
@@ -129,34 +125,30 @@ func (r *Renderer) RenderToFile(markdown []byte, outputPath string) error {
 }
 
 type fontManager struct {
-	fontData      map[FontFamily][]byte
-	fonts         map[FontFamily]*opentype.Font
-	faces         map[string]font.Face
-	hasCustomText bool
+	fontData []byte
+	font     *opentype.Font
+	faces    map[string]font.Face
 }
 
-func newFontManager(customFonts [][]byte) (*fontManager, error) {
+func newFontManager(customFont []byte) (*fontManager, error) {
+	fontData := customFont
+	if len(fontData) == 0 {
+		fontData = goregular.TTF
+	}
+
 	return &fontManager{
-		fontData: map[FontFamily][]byte{
-			FontRegular:    firstNonEmpty(fontAt(customFonts, 0), goregular.TTF),
-			FontBold:       firstNonEmpty(fontAt(customFonts, 1), fontAt(customFonts, 0), gobold.TTF),
-			FontItalic:     firstNonEmpty(fontAt(customFonts, 2), fontAt(customFonts, 0), goitalic.TTF),
-			FontBoldItalic: firstNonEmpty(fontAt(customFonts, 3), fontAt(customFonts, 0), gobolditalic.TTF),
-			FontMono:       firstNonEmpty(fontAt(customFonts, 4), gomono.TTF),
-		},
-		fonts:         make(map[FontFamily]*opentype.Font, 5),
-		faces:         make(map[string]font.Face, 32),
-		hasCustomText: len(customFonts) > 0 && len(fontAt(customFonts, 0)) > 0,
+		fontData: fontData,
+		faces:    make(map[string]font.Face, 32),
 	}, nil
 }
 
-func (m *fontManager) face(family FontFamily, size float64) (font.Face, error) {
-	key := string(family) + "|" + strconv.FormatFloat(size, 'f', 2, 64)
+func (m *fontManager) face(_ FontFamily, size float64) (font.Face, error) {
+	key := strconv.FormatFloat(size, 'f', 2, 64)
 	if face, ok := m.faces[key]; ok {
 		return face, nil
 	}
 
-	ttf, err := m.parsedFont(family)
+	ttf, err := m.parsedFont()
 	if err != nil {
 		return nil, err
 	}
@@ -174,23 +166,22 @@ func (m *fontManager) face(family FontFamily, size float64) (font.Face, error) {
 	return face, nil
 }
 
-func (m *fontManager) parsedFont(family FontFamily) (*opentype.Font, error) {
-	if ttf, ok := m.fonts[family]; ok {
-		return ttf, nil
+func (m *fontManager) parsedFont() (*opentype.Font, error) {
+	if m.font != nil {
+		return m.font, nil
 	}
 
-	data := m.fontData[family]
-	if len(data) == 0 {
-		return nil, fmt.Errorf("unknown font family: %s", family)
+	if len(m.fontData) == 0 {
+		return nil, fmt.Errorf("font data is empty")
 	}
 
-	ttf, err := opentype.Parse(data)
+	ttf, err := opentype.Parse(m.fontData)
 	if err != nil {
-		return nil, fmt.Errorf("parse %s font: %w", family, err)
+		return nil, fmt.Errorf("parse font: %w", err)
 	}
 
-	m.fonts[family] = ttf
-	return ttf, nil
+	m.font = ttf
+	return m.font, nil
 }
 
 type textStyle struct {
@@ -362,29 +353,4 @@ func chunkRunesByWidth(text string, fit func(string) bool) (head, tail string) {
 
 func nearlyZero(v float64) bool {
 	return math.Abs(v) < 0.0001
-}
-
-func hasNonASCII(text string) bool {
-	for _, rn := range text {
-		if rn > unicode.MaxASCII {
-			return true
-		}
-	}
-	return false
-}
-
-func firstNonEmpty(values ...[]byte) []byte {
-	for _, value := range values {
-		if len(value) > 0 {
-			return value
-		}
-	}
-	return nil
-}
-
-func fontAt(fonts [][]byte, index int) []byte {
-	if index < 0 || index >= len(fonts) {
-		return nil
-	}
-	return fonts[index]
 }

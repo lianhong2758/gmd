@@ -45,12 +45,12 @@ go run ./cmd -in ./example.md -out ./output/example-dark.png -theme github-dark
 
 ### 字体说明：
 
-- `v2/font` 中已经静态嵌入了一份中文字体，CLI 默认会启用它。
+- `font` 中已经静态嵌入了一份中文字体，CLI 默认会启用它。
 - 如果你想覆盖内置字体，也可以显式指定外部字体文件：
 ```cmd
 go run ./cmd -in ./example.md -out ./output/example.png -font  example.ttf
 ```
-- 你可以在`gmd.Options.Fonts`中传入多个字体,依次代表`regular` `bold` `italic` `bolditalic` `mono`的绘制字体,如果留空则用第一个字体代替
+- 你可以在`gmd.Options.Font`中传入一个字体，标题、粗体、斜体、行内代码等样式都会基于这个字体绘制。
 
 
 ### 在你的代码中使用gmd
@@ -64,7 +64,7 @@ import (
 	r, err := gmd.New(gmd.Options{
 		ThemeName: gmd.ThemeGitHubDark,
 		Width:     1200,
-		Fonts:     [][]byte{font.TTF},
+		Font:      font.TTF,
 	})
 	img, err := r.Render(mdbyte)
 ```

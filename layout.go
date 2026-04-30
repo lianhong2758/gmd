@@ -364,14 +364,11 @@ func (r *Renderer) headingStyle(level int) textStyle {
 	}
 
 	style := textStyle{
-		Family:     FontBold,
+		Family:     FontRegular,
 		Size:       size,
 		LineHeight: lineHeight,
 		Color:      r.theme.Text,
-	}
-	if r.fonts.hasCustomText {
-		style.Family = FontRegular
-		style.FauxBold = true
+		FauxBold:   true,
 	}
 	return style
 }
@@ -389,12 +386,8 @@ func (r *Renderer) applyInlineStyle(base textStyle, span inlineSpan) textStyle {
 	style := base
 
 	if span.Code {
-		family := FontMono
-		if r.fonts.hasCustomText && hasNonASCII(span.Text) {
-			family = FontRegular
-		}
 		return textStyle{
-			Family:     family,
+			Family:     FontMono,
 			Size:       base.Size * 0.92,
 			LineHeight: base.LineHeight,
 			Color:      r.theme.Text,
@@ -402,20 +395,9 @@ func (r *Renderer) applyInlineStyle(base textStyle, span inlineSpan) textStyle {
 		}
 	}
 
-	if r.fonts.hasCustomText {
-		style.Family = FontRegular
-		style.FauxBold = style.FauxBold || span.Bold
-		style.FauxItalic = style.FauxItalic || span.Italic
-	} else {
-		switch {
-		case span.Bold && span.Italic:
-			style.Family = FontBoldItalic
-		case span.Bold:
-			style.Family = FontBold
-		case span.Italic:
-			style.Family = FontItalic
-		}
-	}
+	style.Family = FontRegular
+	style.FauxBold = style.FauxBold || span.Bold
+	style.FauxItalic = style.FauxItalic || span.Italic
 
 	if span.Link {
 		style.Color = r.theme.Link
@@ -480,6 +462,7 @@ func (r *Renderer) wrapInlineSpans(spans []inlineSpan, base textStyle, width flo
 // 如果某一行过长，会继续按宽度切分，避免整张图被超长代码撑爆。
 func (r *Renderer) wrapCodeText(text string, style resolvedTextStyle, width float64) ([]rawLine, error) {
 	normalized := strings.ReplaceAll(text, "\r\n", "\n")
+	normalized = strings.TrimSuffix(normalized, "\n")
 	lines := strings.Split(normalized, "\n")
 	var raw []rawLine
 
