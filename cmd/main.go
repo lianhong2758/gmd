@@ -90,9 +90,10 @@ func main() {
 	}
 
 	r, err := gmd.New(gmd.Options{
-		ThemeName: themeName,
-		Width:     *width,
-		Font:      fontdata,
+		ThemeName:      themeName,
+		Width:          *width,
+		Font:           fontdata,
+		DrawingLibrary: gmd.DrawingLibraryTinySkia,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "初始化渲染器失败: %v\n", err)

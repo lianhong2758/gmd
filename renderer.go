@@ -12,9 +12,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/FloatTech/gg"
 	"github.com/yuin/goldmark"
-	"golang.org/x/image/font"
 	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
@@ -38,6 +36,9 @@ type Options struct {
 	ThemeName ThemeName
 	Width     int
 	Font      []byte
+
+	// DrawingLibrary 选择底层绘图库，空值默认使用 gg 以保持兼容。
+	DrawingLibrary DrawingLibrary
 }
 
 // Renderer 负责 Markdown 的解析、布局与绘制。
@@ -51,7 +52,7 @@ type Renderer struct {
 	baseDir     string
 	md          goldmark.Markdown
 	fonts       *fontManager
-	measureDC   *gg.Context
+	drawer      drawBackend
 	measureMemo map[string]float64
 }
 
@@ -67,11 +68,16 @@ func New(opts Options) (*Renderer, error) {
 		return nil, err
 	}
 
+	drawer, err := newDrawBackend(opts.DrawingLibrary)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Renderer{
 		theme:       theme,
 		md:          goldmark.New(),
 		fonts:       fonts,
-		measureDC:   gg.NewContext(8, 8),
+		drawer:      drawer,
 		measureMemo: make(map[string]float64, 1024),
 	}, nil
 }
@@ -127,7 +133,6 @@ func (r *Renderer) RenderToFile(markdown []byte, outputPath string) error {
 type fontManager struct {
 	fontData []byte
 	font     *opentype.Font
-	faces    map[string]font.Face
 }
 
 func newFontManager(customFont []byte) (*fontManager, error) {
@@ -136,34 +141,7 @@ func newFontManager(customFont []byte) (*fontManager, error) {
 		fontData = goregular.TTF
 	}
 
-	return &fontManager{
-		fontData: fontData,
-		faces:    make(map[string]font.Face, 32),
-	}, nil
-}
-
-func (m *fontManager) face(_ FontFamily, size float64) (font.Face, error) {
-	key := strconv.FormatFloat(size, 'f', 2, 64)
-	if face, ok := m.faces[key]; ok {
-		return face, nil
-	}
-
-	ttf, err := m.parsedFont()
-	if err != nil {
-		return nil, err
-	}
-
-	face, err := opentype.NewFace(ttf, &opentype.FaceOptions{
-		Size:    size,
-		DPI:     72,
-		Hinting: font.HintingNone,
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	m.faces[key] = face
-	return face, nil
+	return &fontManager{fontData: fontData}, nil
 }
 
 func (m *fontManager) parsedFont() (*opentype.Font, error) {
@@ -197,7 +175,7 @@ type textStyle struct {
 
 type resolvedTextStyle struct {
 	textStyle
-	Face      font.Face
+	Face      drawFont
 	Ascent    float64
 	Descent   float64
 	LinePx    float64
@@ -205,17 +183,17 @@ type resolvedTextStyle struct {
 }
 
 func (r *Renderer) resolveStyle(style textStyle) (resolvedTextStyle, error) {
-	face, err := r.fonts.face(style.Family, style.Size)
+	face, err := r.drawer.newFont(r.fonts, style.Family, style.Size)
 	if err != nil {
 		return resolvedTextStyle{}, err
 	}
 
-	metrics := face.Metrics()
+	ascent, descent := face.metrics()
 	return resolvedTextStyle{
 		textStyle: style,
 		Face:      face,
-		Ascent:    fixedToFloat(metrics.Ascent),
-		Descent:   fixedToFloat(metrics.Descent),
+		Ascent:    ascent,
+		Descent:   descent,
 		LinePx:    style.Size * style.LineHeight,
 		MeasureID: string(style.Family) + "|" + strconv.FormatFloat(style.Size, 'f', 2, 64) +
 			"|b=" + strconv.FormatBool(style.FauxBold) +
@@ -233,8 +211,7 @@ func (r *Renderer) measure(style resolvedTextStyle, text string) float64 {
 		return width
 	}
 
-	r.measureDC.SetFontFace(style.Face)
-	width, _ := r.measureDC.MeasureString(text)
+	width := style.Face.measure(text)
 	r.measureMemo[key] = width
 	return width
 }

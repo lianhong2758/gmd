@@ -3,7 +3,7 @@
 gmd是一个纯 Go 的 Markdown 转图片项目
 
 - Markdown 解析基于 `github.com/yuin/goldmark`
-- 绘图基于 `github.com/FloatTech/gg`
+- 绘图默认基于 `github.com/FloatTech/gg`，也可通过 `Options.DrawingLibrary` 切换到 `github.com/lumifloat/tinyskia`
 - 内置 `default` 和 `github-dark` 两套主题，可通过配置切换
 
 ### 项目目标：
@@ -67,4 +67,13 @@ import (
 		Font:      font.TTF,
 	})
 	img, err := r.Render(mdbyte)
+```
+
+切换绘图库：
+
+```go
+r, err := gmd.New(gmd.Options{
+	Width:          1200,
+	DrawingLibrary: gmd.DrawingLibraryTinySkia,
+})
 ```
