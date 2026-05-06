@@ -15,13 +15,14 @@ import (
 	"github.com/FloatTech/gg"
 	"github.com/yuin/goldmark"
 	"golang.org/x/image/font"
+	"golang.org/x/image/font/gofont/gomono"
 	"golang.org/x/image/font/gofont/goregular"
 	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
 )
 
 // FontFamily 表示文本样式标签。
-// 所有样式都共用 Options.Font 注册的同一个字体。
+// 常规文本使用 Options.Font，代码优先使用 Options.MonoFont。
 type FontFamily string
 
 const (
@@ -37,7 +38,8 @@ type Options struct {
 	Theme     Theme
 	ThemeName ThemeName
 	Width     int
-	Font      []byte
+	Font      []byte // 正文字体；不传则使用 Go 内置默认字体。
+	MonoFont  []byte // 代码字体；不传则使用 Go 内置等宽字体。
 }
 
 // Renderer 负责 Markdown 的解析、布局与绘制。
@@ -62,7 +64,7 @@ func New(opts Options) (*Renderer, error) {
 		return nil, err
 	}
 
-	fonts, err := newFontManager(opts.Font)
+	fonts, err := newFontManager(opts.Font, opts.MonoFont)
 	if err != nil {
 		return nil, err
 	}
@@ -125,30 +127,40 @@ func (r *Renderer) RenderToFile(markdown []byte, outputPath string) error {
 }
 
 type fontManager struct {
-	fontData []byte
-	font     *opentype.Font
-	faces    map[string]font.Face
+	regularData []byte
+	monoData    []byte
+	customMono  bool
+	regularFont *opentype.Font
+	monoFont    *opentype.Font
+	faces       map[string]font.Face
 }
 
-func newFontManager(customFont []byte) (*fontManager, error) {
-	fontData := customFont
-	if len(fontData) == 0 {
-		fontData = goregular.TTF
+func newFontManager(customFont, customMonoFont []byte) (*fontManager, error) {
+	regularData := customFont
+	if len(regularData) == 0 {
+		regularData = goregular.TTF
+	}
+	customMono := len(customMonoFont) > 0
+	monoData := customMonoFont
+	if len(monoData) == 0 {
+		monoData = gomono.TTF
 	}
 
 	return &fontManager{
-		fontData: fontData,
-		faces:    make(map[string]font.Face, 32),
+		regularData: regularData,
+		monoData:    monoData,
+		customMono:  customMono,
+		faces:       make(map[string]font.Face, 32),
 	}, nil
 }
 
-func (m *fontManager) face(_ FontFamily, size float64) (font.Face, error) {
-	key := strconv.FormatFloat(size, 'f', 2, 64)
+func (m *fontManager) face(family FontFamily, size float64) (font.Face, error) {
+	key := string(family) + "|" + strconv.FormatFloat(size, 'f', 2, 64)
 	if face, ok := m.faces[key]; ok {
 		return face, nil
 	}
 
-	ttf, err := m.parsedFont()
+	ttf, err := m.parsedFont(family)
 	if err != nil {
 		return nil, err
 	}
@@ -166,22 +178,36 @@ func (m *fontManager) face(_ FontFamily, size float64) (font.Face, error) {
 	return face, nil
 }
 
-func (m *fontManager) parsedFont() (*opentype.Font, error) {
-	if m.font != nil {
-		return m.font, nil
+func (m *fontManager) parsedFont(family FontFamily) (*opentype.Font, error) {
+	if family == FontMono {
+		if m.monoFont != nil {
+			return m.monoFont, nil
+		}
+		if len(m.monoData) == 0 {
+			return nil, fmt.Errorf("mono font data is empty")
+		}
+		ttf, err := opentype.Parse(m.monoData)
+		if err != nil {
+			return nil, fmt.Errorf("parse mono font: %w", err)
+		}
+		m.monoFont = ttf
+		return m.monoFont, nil
 	}
 
-	if len(m.fontData) == 0 {
+	if m.regularFont != nil {
+		return m.regularFont, nil
+	}
+	if len(m.regularData) == 0 {
 		return nil, fmt.Errorf("font data is empty")
 	}
 
-	ttf, err := opentype.Parse(m.fontData)
+	ttf, err := opentype.Parse(m.regularData)
 	if err != nil {
 		return nil, fmt.Errorf("parse font: %w", err)
 	}
 
-	m.font = ttf
-	return m.font, nil
+	m.regularFont = ttf
+	return m.regularFont, nil
 }
 
 type textStyle struct {
@@ -327,6 +353,47 @@ func splitPlainTokens(text string) []string {
 
 	flushWord()
 	return tokens
+}
+
+func expandCodeTabs(text string, tabWidth int) string {
+	if tabWidth <= 0 || !strings.ContainsRune(text, '\t') {
+		return text
+	}
+
+	var sb strings.Builder
+	column := 0
+	for _, rn := range text {
+		if rn == '\t' {
+			spaces := tabWidth - column%tabWidth
+			sb.WriteString(strings.Repeat(" ", spaces))
+			column += spaces
+			continue
+		}
+
+		sb.WriteRune(rn)
+		column += codeColumnWidth(rn)
+	}
+	return sb.String()
+}
+
+func hasNonASCII(text string) bool {
+	for _, rn := range text {
+		if rn > unicode.MaxASCII {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Renderer) shouldFallbackCodeText(text string) bool {
+	return !r.fonts.customMono && hasNonASCII(text)
+}
+
+func codeColumnWidth(rn rune) int {
+	if isCJK(rn) {
+		return 2
+	}
+	return 1
 }
 
 func chunkRunesByWidth(text string, fit func(string) bool) (head, tail string) {

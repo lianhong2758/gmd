@@ -46,11 +46,15 @@ go run ./cmd -in ./example.md -out ./output/example-dark.png -theme github-dark
 ### 字体说明：
 
 - `font` 中已经静态嵌入了一份中文字体，CLI 默认会启用它。
-- 如果你想覆盖内置字体，也可以显式指定外部字体文件：
+- 如果你想覆盖内置正文字体，也可以显式指定外部字体文件：
 ```cmd
 go run ./cmd -in ./example.md -out ./output/example.png -font  example.ttf
 ```
-- 你可以在`gmd.Options.Font`中传入一个字体，标题、粗体、斜体、行内代码等样式都会基于这个字体绘制。
+- 如果你想覆盖代码块和行内代码的等宽字体，可以指定：
+```cmd
+go run ./cmd -in ./example.md -out ./output/example.png -mono-font mono.ttf
+```
+- 你可以在`gmd.Options.Font`中传入正文字体，在`gmd.Options.MonoFont`中传入代码字体；未传入时会使用默认字体。未传入代码字体时，非 ASCII 代码片段会回退到正文字体。
 
 
 ### 在你的代码中使用gmd

@@ -59,7 +59,8 @@ func main() {
 		in    = flag.String("in", "", "Markdown 文件路径，留空则使用内置示例")
 		out   = flag.String("out", "output/markdown.png", "输出 PNG 路径")
 		width = flag.Int("width", 1200, "图片宽度")
-		font  = flag.String("font", "", "外部 TTF 字体文件路径，设置后优先使用")
+		font  = flag.String("font", "", "外部正文字体 TTF 路径，设置后优先使用")
+		mono  = flag.String("mono-font", "", "外部代码等宽字体 TTF 路径，设置后优先使用")
 		theme = flag.String("theme", string(gmd.ThemeDefault), "内置主题，可选: "+strings.Join(gmd.ThemeNames(), ", "))
 	)
 	flag.Parse()
@@ -83,16 +84,26 @@ func main() {
 	if *font != "" {
 		b, err := os.ReadFile(*font)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "字体配置无效: %v\n", err)
+			fmt.Fprintf(os.Stderr, "正文字体配置无效: %v\n", err)
 			os.Exit(1)
 		}
 		fontdata = b
+	}
+	var monodata []byte
+	if *mono != "" {
+		b, err := os.ReadFile(*mono)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "代码字体配置无效: %v\n", err)
+			os.Exit(1)
+		}
+		monodata = b
 	}
 
 	r, err := gmd.New(gmd.Options{
 		ThemeName: themeName,
 		Width:     *width,
 		Font:      fontdata,
+		MonoFont:  monodata,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "初始化渲染器失败: %v\n", err)

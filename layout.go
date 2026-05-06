@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"strings"
+	"unicode"
 
 	"github.com/FloatTech/gg"
 )
@@ -65,6 +66,8 @@ type spanToken struct {
 	Space      bool
 	ForceBreak bool
 }
+
+const codeTabWidth = 4
 
 // layoutDocument 根据固定宽度完成整份文档的排版。
 // 这一步只计算位置，不真正绘图，便于后续重复输出到不同目标。
@@ -421,7 +424,11 @@ func (r *Renderer) wrapInlineSpans(spans []inlineSpan, base textStyle, width flo
 			continue
 		}
 
-		style, err := r.resolveStyle(r.applyInlineStyle(base, span))
+		textStyle := r.applyInlineStyle(base, span)
+		if span.Code && r.shouldFallbackCodeText(span.Text) {
+			textStyle.Family = FontRegular
+		}
+		style, err := r.resolveStyle(textStyle)
 		if err != nil {
 			return nil, err
 		}
@@ -459,34 +466,178 @@ func (r *Renderer) wrapInlineSpans(spans []inlineSpan, base textStyle, width flo
 }
 
 // wrapCodeText 以“保留每一行”的方式处理代码块文本。
+// 代码块的空白宽度按固定代码列计算，避免 tab/空格被当前字体绘制成不稳定缩进。
 // 如果某一行过长，会继续按宽度切分，避免整张图被超长代码撑爆。
 func (r *Renderer) wrapCodeText(text string, style resolvedTextStyle, width float64) ([]rawLine, error) {
-	normalized := strings.ReplaceAll(text, "\r\n", "\n")
-	normalized = strings.TrimSuffix(normalized, "\n")
-	lines := strings.Split(normalized, "\n")
-	var raw []rawLine
-
-	for _, line := range lines {
-		if line == "" {
-			raw = append(raw, rawLine{
-				Height:  style.LinePx,
-				Ascent:  style.Ascent,
-				Descent: style.Descent,
-			})
-			continue
-		}
-
-		wrapped, err := r.wrapTokens([]spanToken{{
-			Text:  line,
-			Style: style,
-		}}, width)
+	fallback := style
+	useFallback := r.shouldFallbackCodeText(text)
+	if useFallback {
+		fallbackStyle := style.textStyle
+		fallbackStyle.Family = FontRegular
+		var err error
+		fallback, err = r.resolveStyle(fallbackStyle)
 		if err != nil {
 			return nil, err
 		}
-		raw = append(raw, wrapped...)
+	}
+
+	normalized := strings.ReplaceAll(text, "\r\n", "\n")
+	normalized = strings.TrimSuffix(normalized, "\n")
+	var raw []rawLine
+
+	for {
+		line, rest, ok := strings.Cut(normalized, "\n")
+		raw = append(raw, r.wrapCodeLine(expandCodeTabs(line, codeTabWidth), style, fallback, useFallback, width)...)
+		if !ok {
+			break
+		}
+		normalized = rest
 	}
 
 	return raw, nil
+}
+
+func (r *Renderer) wrapCodeLine(line string, style, fallback resolvedTextStyle, useFallback bool, width float64) []rawLine {
+	if line == "" {
+		return []rawLine{r.emptyCodeLine(style)}
+	}
+
+	cellWidth := r.measure(style, " ")
+	var lines []rawLine
+	var frags []layoutFragment
+	lineWidth := 0.0
+
+	flushLine := func(force bool) {
+		if len(frags) == 0 && !force {
+			return
+		}
+		lines = append(lines, rawLine{
+			Width:     lineWidth,
+			Height:    style.LinePx,
+			Ascent:    style.Ascent,
+			Descent:   style.Descent,
+			Fragments: frags,
+		})
+		frags = nil
+		lineWidth = 0
+	}
+
+	addFragment := func(text string, widthValue, textWidth float64, fragmentStyle resolvedTextStyle) {
+		if text == "" {
+			return
+		}
+		frags = append(frags, layoutFragment{
+			Text:      text,
+			Width:     widthValue,
+			TextWidth: textWidth,
+			Style:     fragmentStyle,
+		})
+		lineWidth += widthValue
+	}
+
+	addWhitespace := func(text string) {
+		widthValue := float64(len([]rune(text))) * cellWidth
+		if lineWidth > 0 && lineWidth+widthValue > width {
+			flushLine(false)
+		}
+		addFragment(text, widthValue, 0, style)
+	}
+
+	addText := func(text string, fragmentStyle resolvedTextStyle) {
+		textWidth := r.measure(fragmentStyle, text)
+		if lineWidth+textWidth <= width {
+			addFragment(text, textWidth, textWidth, fragmentStyle)
+			return
+		}
+
+		if !nearlyZero(lineWidth) {
+			available := width - lineWidth
+			if available > 0 {
+				head, tail := chunkRunesByWidth(text, func(part string) bool {
+					return r.measure(fragmentStyle, part) <= available
+				})
+				headWidth := r.measure(fragmentStyle, head)
+				addFragment(head, headWidth, headWidth, fragmentStyle)
+				if tail == "" {
+					return
+				}
+				flushLine(false)
+				text = tail
+				textWidth = r.measure(fragmentStyle, text)
+			} else {
+				flushLine(false)
+			}
+			if textWidth <= width {
+				addFragment(text, textWidth, textWidth, fragmentStyle)
+				return
+			}
+		} else if textWidth <= width {
+			addFragment(text, textWidth, textWidth, fragmentStyle)
+			return
+		}
+
+		flushLine(false)
+		remain := text
+		for remain != "" {
+			head, tail := chunkRunesByWidth(remain, func(part string) bool {
+				return r.measure(fragmentStyle, part) <= width
+			})
+			headWidth := r.measure(fragmentStyle, head)
+			addFragment(head, headWidth, headWidth, fragmentStyle)
+			remain = tail
+			if remain != "" {
+				flushLine(false)
+			}
+		}
+	}
+
+	var run []rune
+	runWhitespace := false
+	runFallback := false
+	hasRun := false
+
+	flushRun := func() {
+		if !hasRun {
+			return
+		}
+		text := string(run)
+		if runWhitespace {
+			addWhitespace(text)
+		} else if runFallback {
+			addText(text, fallback)
+		} else {
+			addText(text, style)
+		}
+		run = run[:0]
+		hasRun = false
+	}
+
+	for _, rn := range line {
+		isWhitespace := rn == ' '
+		usesFallback := useFallback && !isWhitespace && rn > unicode.MaxASCII
+		if hasRun && (isWhitespace != runWhitespace || usesFallback != runFallback) {
+			flushRun()
+		}
+		run = append(run, rn)
+		runWhitespace = isWhitespace
+		runFallback = usesFallback
+		hasRun = true
+	}
+	flushRun()
+	flushLine(true)
+
+	if len(lines) == 0 {
+		return []rawLine{r.emptyCodeLine(style)}
+	}
+	return lines
+}
+
+func (r *Renderer) emptyCodeLine(style resolvedTextStyle) rawLine {
+	return rawLine{
+		Height:  style.LinePx,
+		Ascent:  style.Ascent,
+		Descent: style.Descent,
+	}
 }
 
 // wrapTokens 是核心换行算法。
@@ -535,8 +686,9 @@ func (r *Renderer) wrapTokens(tokens []spanToken, width float64) ([]rawLine, err
 		widthValue := textWidth
 		textOffsetX := 0.0
 		if style.InlineCode {
-			textOffsetX = r.theme.InlineCodePaddingX
-			widthValue += r.theme.InlineCodePaddingX * 2
+			shift := r.measure(style, "0") * 0.5
+			textOffsetX = r.theme.InlineCodePaddingX + shift
+			widthValue += r.theme.InlineCodePaddingX*2 + shift
 		}
 
 		if len(frags) > 0 {
@@ -580,7 +732,7 @@ func (r *Renderer) wrapTokens(tokens []spanToken, width float64) ([]rawLine, err
 
 		tokenWidth := r.measure(token.Style, token.Text)
 		if token.Style.InlineCode {
-			tokenWidth += r.theme.InlineCodePaddingX * 2
+			tokenWidth += r.theme.InlineCodePaddingX*2 + r.measure(token.Style, "0")*0.5
 		}
 		if nearlyZero(lineWidth) && token.Space {
 			return
@@ -783,9 +935,13 @@ func (r *Renderer) drawLines(dc *gg.Context, lines []layoutLine) error {
 		for _, frag := range line.Fragments {
 			if frag.Style.InlineCode {
 				paddingY := r.theme.InlineCodePaddingY
-				boxX := frag.X
+				boxOffsetX := frag.TextOffsetX - r.theme.InlineCodePaddingX
+				if boxOffsetX < 0 {
+					boxOffsetX = 0
+				}
+				boxX := frag.X + boxOffsetX
 				boxY := line.Baseline - frag.Style.Ascent - paddingY
-				boxW := frag.Width
+				boxW := frag.Width - boxOffsetX
 				boxH := frag.Style.Ascent + frag.Style.Descent + paddingY*2
 
 				dc.SetColor(r.theme.InlineCode)
