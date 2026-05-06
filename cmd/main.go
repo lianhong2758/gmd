@@ -56,23 +56,33 @@ func main() {
 
 func main() {
 	var (
-		in    = flag.String("in", "", "Markdown 文件路径，留空则使用内置示例")
-		out   = flag.String("out", "output/markdown.png", "输出 PNG 路径")
-		width = flag.Int("width", 1200, "图片宽度")
-		font  = flag.String("font", "", "外部正文字体 TTF 路径，设置后优先使用")
-		mono  = flag.String("mono-font", "", "外部代码等宽字体 TTF 路径，设置后优先使用")
-		theme = flag.String("theme", string(gmd.ThemeDefault), "内置主题，可选: "+strings.Join(gmd.ThemeNames(), ", "))
+		in        = flag.String("in", "", "Markdown 文件路径，留空则使用内置示例")
+		out       = flag.String("out", "output/markdown.png", "输出 PNG 路径")
+		width     = flag.Int("width", 1200, "图片宽度")
+		font      = flag.String("font", "", "外部正文字体路径，支持 TTF/OTF/TTC/OTC，设置后优先使用")
+		fontIndex = flag.Int("font-index", 0, "正文字体集合索引，TTC/OTC 时可选")
+		mono      = flag.String("mono-font", "", "外部代码等宽字体路径，支持 TTF/OTF/TTC/OTC，设置后优先使用")
+		monoIndex = flag.Int("mono-font-index", 0, "代码字体集合索引，TTC/OTC 时可选")
+		theme     = flag.String("theme", string(gmd.ThemeDefault), "内置主题，可选: "+strings.Join(gmd.ThemeNames(), ", "))
 	)
 	flag.Parse()
 
 	content := []byte(sampleMarkdown)
+	baseDir := ""
 	if *in != "" {
-		data, err := os.ReadFile(*in)
+		inputPath := filepath.Clean(*in)
+		data, err := os.ReadFile(inputPath)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "读取 Markdown 文件失败: %v\n", err)
 			os.Exit(1)
 		}
 		content = data
+
+		if absPath, err := filepath.Abs(inputPath); err == nil {
+			baseDir = filepath.Dir(absPath)
+		} else {
+			baseDir = filepath.Dir(inputPath)
+		}
 	}
 
 	themeName, err := gmd.ParseThemeName(*theme)
@@ -80,7 +90,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "主题配置无效: %v\n", err)
 		os.Exit(1)
 	}
-	fontdata := markfont.TTF
+	fontdata := []byte{}
 	if *font != "" {
 		b, err := os.ReadFile(*font)
 		if err != nil {
@@ -88,6 +98,11 @@ func main() {
 			os.Exit(1)
 		}
 		fontdata = b
+	} else {
+		fontdata, err = markfont.LoadWindowsFont("simsun.ttc")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "未找到字体 simsun.ttc , err: %v\n", err)
+		}
 	}
 	var monodata []byte
 	if *mono != "" {
@@ -100,10 +115,13 @@ func main() {
 	}
 
 	r, err := gmd.New(gmd.Options{
-		ThemeName: themeName,
-		Width:     *width,
-		Font:      fontdata,
-		MonoFont:  monodata,
+		ThemeName:     themeName,
+		Width:         *width,
+		BaseDir:       baseDir,
+		Font:          fontdata,
+		FontIndex:     *fontIndex,
+		MonoFont:      monodata,
+		MonoFontIndex: *monoIndex,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "初始化渲染器失败: %v\n", err)

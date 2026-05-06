@@ -35,11 +35,14 @@ const (
 
 // Options 是渲染器初始化参数。
 type Options struct {
-	Theme     Theme
-	ThemeName ThemeName
-	Width     int
-	Font      []byte // 正文字体；不传则使用 Go 内置默认字体。
-	MonoFont  []byte // 代码字体；不传则使用 Go 内置等宽字体。
+	Theme         Theme
+	ThemeName     ThemeName
+	Width         int
+	BaseDir       string // 相对资源路径的基准目录，例如 Markdown 文件所在目录。
+	Font          []byte // 正文字体；支持 TTF/OTF/TTC/OTC，不传则使用 Go 内置默认字体。
+	FontIndex     int    // 正文字体集合索引；单字体文件固定为 0。
+	MonoFont      []byte // 代码字体；支持 TTF/OTF/TTC/OTC，不传则使用 Go 内置等宽字体。
+	MonoFontIndex int    // 代码字体集合索引；单字体文件固定为 0。
 }
 
 // Renderer 负责 Markdown 的解析、布局与绘制。
@@ -55,7 +58,13 @@ type Renderer struct {
 	fonts       *fontManager
 	measureDC   *gg.Context
 	measureMemo map[string]float64
+	drawContext *gg.Context
 }
+
+var (
+	MeasureMemoSize = 1024
+	FaceCacheSize   = 32
+)
 
 // New 创建渲染器实例。
 func New(opts Options) (*Renderer, error) {
@@ -64,17 +73,18 @@ func New(opts Options) (*Renderer, error) {
 		return nil, err
 	}
 
-	fonts, err := newFontManager(opts.Font, opts.MonoFont)
+	fonts, err := newFontManager(opts.Font, opts.FontIndex, opts.MonoFont, opts.MonoFontIndex)
 	if err != nil {
 		return nil, err
 	}
 
 	return &Renderer{
 		theme:       theme,
+		baseDir:     normalizeBaseDir(opts.BaseDir),
 		md:          goldmark.New(),
 		fonts:       fonts,
 		measureDC:   gg.NewContext(8, 8),
-		measureMemo: make(map[string]float64, 1024),
+		measureMemo: make(map[string]float64, MeasureMemoSize),
 	}, nil
 }
 
@@ -83,12 +93,23 @@ func resolveTheme(opts Options) (Theme, error) {
 		return opts.Theme, nil
 	}
 
-	name, err := ParseThemeName(string(opts.ThemeName))
-	if err != nil {
-		return Theme{}, err
-	}
+	return ThemeByName(opts.ThemeName, opts.Width), nil
+}
 
-	return ThemeByName(name, opts.Width), nil
+func normalizeBaseDir(dir string) string {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return ""
+	}
+	return filepath.Clean(dir)
+}
+
+// SetBaseDir 设置相对资源路径的基准目录，例如 Markdown 文件所在目录。
+func (r *Renderer) SetBaseDir(dir string) {
+	if r == nil {
+		return
+	}
+	r.baseDir = normalizeBaseDir(dir)
 }
 
 // Render 把 Markdown 渲染为内存中的图片对象。
@@ -104,6 +125,23 @@ func (r *Renderer) Render(markdown []byte) (image.Image, error) {
 	}
 
 	return r.draw(layout)
+}
+
+// Clear 清理上次绘制遗留的缓存，释放可重建的内存占用。
+//
+// Clear 不会销毁渲染器配置；调用后仍可继续复用同一个 Renderer 再次渲染。
+// 它主要用于主动释放文本测量缓存、字体 face 缓存和临时路径上下文。
+func (r *Renderer) Clear() {
+	if r == nil {
+		return
+	}
+
+	r.measureDC = gg.NewContext(8, 8)
+	r.drawContext = nil
+	clear(r.measureMemo)
+	if r.fonts != nil {
+		r.fonts.clear()
+	}
 }
 
 // RenderToFile 直接把 Markdown 输出为 PNG 文件。
@@ -127,15 +165,17 @@ func (r *Renderer) RenderToFile(markdown []byte, outputPath string) error {
 }
 
 type fontManager struct {
-	regularData []byte
-	monoData    []byte
-	customMono  bool
-	regularFont *opentype.Font
-	monoFont    *opentype.Font
-	faces       map[string]font.Face
+	regularData  []byte
+	regularIndex int
+	monoData     []byte
+	monoIndex    int
+	customMono   bool
+	regularFont  *opentype.Font
+	monoFont     *opentype.Font
+	faces        map[string]font.Face
 }
 
-func newFontManager(customFont, customMonoFont []byte) (*fontManager, error) {
+func newFontManager(customFont []byte, customFontIndex int, customMonoFont []byte, customMonoFontIndex int) (*fontManager, error) {
 	regularData := customFont
 	if len(regularData) == 0 {
 		regularData = goregular.TTF
@@ -147,11 +187,27 @@ func newFontManager(customFont, customMonoFont []byte) (*fontManager, error) {
 	}
 
 	return &fontManager{
-		regularData: regularData,
-		monoData:    monoData,
-		customMono:  customMono,
-		faces:       make(map[string]font.Face, 32),
+		regularData:  regularData,
+		regularIndex: customFontIndex,
+		monoData:     monoData,
+		monoIndex:    customMonoFontIndex,
+		customMono:   customMono,
+		faces:        make(map[string]font.Face, FaceCacheSize),
 	}, nil
+}
+
+func (m *fontManager) clear() {
+	if m == nil {
+		return
+	}
+
+	for _, face := range m.faces {
+		face.Close()
+	}
+
+	m.regularFont = nil
+	m.monoFont = nil
+	clear(m.faces)
 }
 
 func (m *fontManager) face(family FontFamily, size float64) (font.Face, error) {
@@ -179,35 +235,49 @@ func (m *fontManager) face(family FontFamily, size float64) (font.Face, error) {
 }
 
 func (m *fontManager) parsedFont(family FontFamily) (*opentype.Font, error) {
+	data := m.regularData
+	index := m.regularIndex
+	label := "font"
+	cached := &m.regularFont
+
 	if family == FontMono {
-		if m.monoFont != nil {
-			return m.monoFont, nil
-		}
-		if len(m.monoData) == 0 {
-			return nil, fmt.Errorf("mono font data is empty")
-		}
-		ttf, err := opentype.Parse(m.monoData)
-		if err != nil {
-			return nil, fmt.Errorf("parse mono font: %w", err)
-		}
-		m.monoFont = ttf
-		return m.monoFont, nil
+		data = m.monoData
+		index = m.monoIndex
+		label = "mono font"
+		cached = &m.monoFont
 	}
 
-	if m.regularFont != nil {
-		return m.regularFont, nil
+	if *cached != nil {
+		return *cached, nil
 	}
-	if len(m.regularData) == 0 {
-		return nil, fmt.Errorf("font data is empty")
+	if len(data) == 0 {
+		return nil, fmt.Errorf("%s data is empty", label)
+	}
+	if index < 0 {
+		return nil, fmt.Errorf("%s index must be >= 0, got %d", label, index)
 	}
 
-	ttf, err := opentype.Parse(m.regularData)
+	collection, err := opentype.ParseCollection(data)
 	if err != nil {
-		return nil, fmt.Errorf("parse font: %w", err)
+		return nil, fmt.Errorf("parse %s collection: %w", label, err)
 	}
 
-	m.regularFont = ttf
-	return m.regularFont, nil
+	if index >= collection.NumFonts() {
+		return nil, fmt.Errorf(
+			"%s index %d out of range: collection has %d font(s)",
+			label,
+			index,
+			collection.NumFonts(),
+		)
+	}
+
+	font, err := collection.Font(index)
+	if err != nil {
+		return nil, fmt.Errorf("load %s #%d: %w", label, index, err)
+	}
+
+	*cached = font
+	return *cached, nil
 }
 
 type textStyle struct {

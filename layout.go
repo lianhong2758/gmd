@@ -841,17 +841,17 @@ func (r *Renderer) blockGap(kind blockKind) float64 {
 
 // draw 根据布局结果真正输出位图。
 func (r *Renderer) draw(doc *layoutDocument) (image.Image, error) {
-	dc := gg.NewContext(doc.Width, doc.Height)
-	dc.SetColor(r.theme.Background)
-	dc.Clear()
+	r.drawContext = gg.NewContext(doc.Width, doc.Height)
+	r.drawContext.SetColor(r.theme.Background)
+	r.drawContext.Clear()
 
 	for _, block := range doc.Blocks {
-		if err := r.drawBlock(dc, block); err != nil {
+		if err := r.drawBlock(r.drawContext, block); err != nil {
 			return nil, err
 		}
 	}
 
-	return dc.Image(), nil
+	return r.drawContext.Image(), nil
 }
 
 // drawBlock 按块级类型分派到不同绘制逻辑。

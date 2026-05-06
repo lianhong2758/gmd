@@ -1,31 +1,32 @@
 ### gmd
 
-gmd是一个纯 Go 的 Markdown 转图片项目
+`gmd` 是一个纯 Go 的 Markdown 转图片项目。
 
 - Markdown 解析基于 `github.com/yuin/goldmark`
 - 绘图基于 `github.com/FloatTech/gg`
-- 内置 `default` 和 `github-dark` 两套主题，可通过配置切换
+- 内置 `default` 和 `github-dark` 两套主题
+- 采用“两阶段布局 + 一次性绘制”的渲染流程
 
-### 项目目标：
+### 项目目标
 
 - 尽量遵循 CommonMark 常见语法
-- 通过“两阶段布局 + 一次性绘制”提升性能与稳定性
-- 保持结构简单，便于继续扩展
+- 在保证结构简单的前提下提升性能与稳定性
+- 便于继续扩展主题、布局和字体能力
 
-### 已支持的Markdown语法:
+### 已支持的 Markdown 语法
 
 - 标题
 - 段落与自动换行
-- **粗体** 、*斜体* 、`行内代码`
+- **粗体**、*斜体*、`行内代码`
 - 有序列表与无序列表
 - 引用块
 - 代码块
 - [链接文本]()
 - 图片
 
+### 快速运行
 
-### 快速运行：
-渲染示例文本:
+渲染内置示例：
 
 ```cmd
 go run ./cmd
@@ -43,32 +44,105 @@ go run ./cmd -in ./example.md -out ./output/example.png
 go run ./cmd -in ./example.md -out ./output/example-dark.png -theme github-dark
 ```
 
-### 字体说明：
+### 字体说明
 
-- `font` 中已经静态嵌入了一份中文字体，CLI 默认会启用它。
-- 如果你想覆盖内置正文字体，也可以显式指定外部字体文件：
+- `gmd.Options.Font` 和 `gmd.Options.MonoFont` 支持传入 `TTF / OTF / TTC / OTC` 字体数据
+- `gmd.Options.FontIndex` 和 `gmd.Options.MonoFontIndex` 用于选择字体集合中的第几个字体，单字体文件固定为 `0`
+- 未传入正文字体时，使用 Go 内置默认字体，内置字体不支持中文
+- 未传入代码字体时，使用 Go 内置等宽字体
+
+注意：
+
+- Go 内置默认字体不适合作为完整中文字体使用
+- 如果要稳定渲染中文，建议显式传入系统中文字体，例如 Windows 上常见的 `msyh.ttc`、`simsun.ttc`
+
+命令行中可以直接指定字体路径：
+
 ```cmd
-go run ./cmd -in ./example.md -out ./output/example.png -font  example.ttf
+go run ./cmd -in ./example.md -out ./output/example.png -font .\msyh.ttc -font-index 0
 ```
-- 如果你想覆盖代码块和行内代码的等宽字体，可以指定：
+
+如果要覆盖代码块和行内代码的等宽字体：
+
 ```cmd
-go run ./cmd -in ./example.md -out ./output/example.png -mono-font mono.ttf
+go run ./cmd -in ./example.md -out ./output/example.png -mono-font .\JetBrainsMono-Regular.ttf
 ```
-- 你可以在`gmd.Options.Font`中传入正文字体，在`gmd.Options.MonoFont`中传入代码字体；未传入时会使用默认字体。未传入代码字体时，非 ASCII 代码片段会回退到正文字体。
 
+如果字体文件是集合字体，例如 `ttc` 或 `otc`，可以额外指定索引：
 
-### 在你的代码中使用gmd
+```cmd
+go run ./cmd -in ./example.md -out ./output/example.png -font C:\Windows\Fonts\msyh.ttc -font-index 0
+```
+
+### Windows 系统字体
+
+`font` 包提供了 `LoadWindowsFont`，可以直接从 Windows 系统字体目录加载字体文件。
+
+示例：
 
 ```go
+package main
+
 import (
+	"log"
+
 	"github.com/lianhong2758/gmd"
-	"github.com/lianhong2758/gmd/font"
+	markfont "github.com/lianhong2758/gmd/font"
 )
+
+func main() {
+	fontdata, err := markfont.LoadWindowsFont("simsun.ttc")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	r, err := gmd.New(gmd.Options{
+		ThemeName: gmd.ThemeDefault,
+		Width:     1200,
+		Font:      fontData,
+		FontIndex: 0,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	_, err = r.Render([]byte("# 你好，世界"))
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+```
+
+### 在代码中使用
+
+```go
+package main
+
+import (
+	"log"
+	"os"
+
+	"github.com/lianhong2758/gmd"
+)
+
+func main() {
+	md, err := os.ReadFile("example.md")
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	r, err := gmd.New(gmd.Options{
 		ThemeName: gmd.ThemeGitHubDark,
 		Width:     1200,
-		Font:      font.TTF,
 	})
-	img, err := r.Render(mdbyte)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := r.RenderToFile(md, "output/example.png"); err != nil {
+		log.Fatal(err)
+	}
+
+	r.Clear()
+}
 ```
