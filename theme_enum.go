@@ -356,7 +356,7 @@ var builtinThemeConfigs = map[ThemeName]Theme{
 		QuoteBar:           rgb(187, 187, 187),
 		QuoteFill:          rgb(235, 244, 255),
 		CodeFill:           rgb(248, 248, 248),
-		CodeText:           rgb(248, 248, 242),
+		CodeText:           rgb(51, 51, 51),
 		CodeLabel:          rgb(5, 149, 191),
 		InlineCode:         rgb(248, 248, 248),
 		InlineText:         rgb(90, 103, 216),
