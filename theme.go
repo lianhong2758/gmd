@@ -83,10 +83,10 @@ func DefaultTheme(width int) Theme {
 
 // GitHubDarkTheme 保留旧接口，映射到新的深色主题集合。
 func GitHubDarkTheme(width int) Theme {
-	return ThemeByName(ThemeDarkGraphite, width)
+	return ThemeByName(ThemeGitHubDark, width)
 }
 
 // VSCodeDarkTheme 保留旧接口，映射到新的深色主题集合。
 func VSCodeDarkTheme(width int) Theme {
-	return ThemeByName(ThemeCobalt, width)
+	return ThemeByName(ThemeVSCodeDark, width)
 }
