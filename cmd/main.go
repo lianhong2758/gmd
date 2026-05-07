@@ -87,19 +87,18 @@ func main() {
 		}
 	}
 
-	themeName, err := gmd.ParseThemeName(*theme)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "主题配置无效: %v\n", err)
+	if !gmd.ParseThemeName(*theme) {
+		fmt.Fprintf(os.Stderr, "主题配置无效: unknown theme %q, supported themes: %s\n", *theme, strings.Join(gmd.ThemeNames(), ", "))
 		os.Exit(1)
 	}
-	fontdata := []byte{}
+	var err error
+	var fontdata []byte
 	if *font != "" {
-		b, err := os.ReadFile(*font)
+		fontdata, err = os.ReadFile(*font)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "正文字体配置无效: %v\n", err)
 			os.Exit(1)
 		}
-		fontdata = b
 	} else {
 		fontdata, err = markfont.LoadWindowsFont("simsun.ttc")
 		if err != nil {
@@ -108,12 +107,11 @@ func main() {
 	}
 	var monodata []byte
 	if *mono != "" {
-		b, err := os.ReadFile(*mono)
+		monodata, err = os.ReadFile(*mono)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "代码字体配置无效: %v\n", err)
 			os.Exit(1)
 		}
-		monodata = b
 	}
 	emojidata, err := markfont.LoadFirstWindowsFont("seguiemj.ttf", "seguiemj", "seguisym.ttf", "seguisym")
 	if err != nil {
@@ -121,7 +119,7 @@ func main() {
 	}
 
 	r, err := gmd.New(gmd.Options{
-		ThemeName:      themeName,
+		ThemeName:      gmd.NormalizeThemeName(*theme),
 		Width:          *width,
 		BaseDir:        baseDir,
 		Font:           fontdata,

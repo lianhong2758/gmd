@@ -268,12 +268,13 @@ func (m *fontManager) parsedFont(family FontFamily) (*opentype.Font, error) {
 	label := "font"
 	cached := &m.regularFont
 
-	if family == FontMono {
+	switch family {
+	case FontMono:
 		data = m.monoData
 		index = m.monoIndex
 		label = "mono font"
 		cached = &m.monoFont
-	} else if family == FontEmoji {
+	case FontEmoji:
 		data = m.emojiData
 		index = m.emojiIndex
 		label = "emoji font"
