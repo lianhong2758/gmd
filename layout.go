@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"image"
 	"strings"
-	"unicode"
 
 	"github.com/FloatTech/gg"
 )
@@ -30,6 +29,7 @@ type layoutBlock struct {
 type layoutListItem struct {
 	Marker         string
 	UseBullet      bool
+	BulletFilled   bool
 	MarkerStyle    resolvedTextStyle
 	MarkerX        float64
 	MarkerBaseline float64
@@ -73,7 +73,7 @@ const codeTabWidth = 4
 // 这一步只计算位置，不真正绘图，便于后续重复输出到不同目标。
 func (r *Renderer) layoutDocument(doc *document) (*layoutDocument, error) {
 	usableWidth := float64(r.theme.Width) - r.theme.Padding*2
-	blocks, bottom, err := r.layoutBlocks(doc.Blocks, r.theme.Padding, r.theme.Padding, usableWidth, 0)
+	blocks, bottom, err := r.layoutBlocks(doc.Blocks, r.theme.Padding, r.theme.Padding, usableWidth, 0, 0)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +90,7 @@ func (r *Renderer) layoutDocument(doc *document) (*layoutDocument, error) {
 	}, nil
 }
 
-func (r *Renderer) layoutBlocks(blocks []block, x, y, width float64, quoteDepth int) ([]layoutBlock, float64, error) {
+func (r *Renderer) layoutBlocks(blocks []block, x, y, width float64, quoteDepth, listDepth int) ([]layoutBlock, float64, error) {
 	var out []layoutBlock
 	cursor := y
 
@@ -116,9 +116,9 @@ func (r *Renderer) layoutBlocks(blocks []block, x, y, width float64, quoteDepth 
 		case blockImage:
 			lb, err = r.layoutImageBlock(b, x, cursor, width, quoteDepth)
 		case blockBlockquote:
-			lb, err = r.layoutQuoteBlock(b, x, cursor, width, quoteDepth)
+			lb, err = r.layoutQuoteBlock(b, x, cursor, width, quoteDepth, listDepth)
 		case blockList:
-			lb, err = r.layoutListBlock(b, x, cursor, width, quoteDepth)
+			lb, err = r.layoutListBlock(b, x, cursor, width, quoteDepth, listDepth)
 		default:
 			continue
 		}
@@ -200,7 +200,7 @@ func (r *Renderer) layoutCodeBlock(b block, x, y, width float64) (layoutBlock, e
 	if info := strings.TrimSpace(b.Info); info != "" {
 		labelStyle := codeStyle
 		labelStyle.Size = maxFloat(14, codeStyle.Size*0.72)
-		labelStyle.Color = r.theme.InlineCode
+		labelStyle.Color = r.theme.CodeLabel
 		labelResolved, err := r.resolveStyle(labelStyle)
 		if err != nil {
 			return layoutBlock{}, err
@@ -244,7 +244,7 @@ func (r *Renderer) layoutCodeBlock(b block, x, y, width float64) (layoutBlock, e
 }
 
 // layoutQuoteBlock 在子内容外层增加引用背景、左侧竖条和额外内边距。
-func (r *Renderer) layoutQuoteBlock(b block, x, y, width float64, quoteDepth int) (layoutBlock, error) {
+func (r *Renderer) layoutQuoteBlock(b block, x, y, width float64, quoteDepth, listDepth int) (layoutBlock, error) {
 	innerX := x + r.theme.QuoteBarWidth + r.theme.QuotePaddingX
 	innerY := y + r.theme.QuotePaddingY
 	innerWidth := width - r.theme.QuoteBarWidth - r.theme.QuotePaddingX*2
@@ -252,7 +252,7 @@ func (r *Renderer) layoutQuoteBlock(b block, x, y, width float64, quoteDepth int
 		innerWidth = 1
 	}
 
-	children, bottom, err := r.layoutBlocks(b.Blocks, innerX, innerY, innerWidth, quoteDepth+1)
+	children, bottom, err := r.layoutBlocks(b.Blocks, innerX, innerY, innerWidth, quoteDepth+1, listDepth)
 	if err != nil {
 		return layoutBlock{}, err
 	}
@@ -268,7 +268,7 @@ func (r *Renderer) layoutQuoteBlock(b block, x, y, width float64, quoteDepth int
 }
 
 // layoutListBlock 为列表项预留 marker 区域，再把正文块布局到右侧内容区。
-func (r *Renderer) layoutListBlock(b block, x, y, width float64, quoteDepth int) (layoutBlock, error) {
+func (r *Renderer) layoutListBlock(b block, x, y, width float64, quoteDepth, listDepth int) (layoutBlock, error) {
 	baseStyle, err := r.resolveStyle(r.paragraphStyle(quoteDepth))
 	if err != nil {
 		return layoutBlock{}, err
@@ -297,7 +297,7 @@ func (r *Renderer) layoutListBlock(b block, x, y, width float64, quoteDepth int)
 			useBullet = false
 		}
 
-		children, bottom, err := r.layoutBlocks(item.Blocks, contentX, cursor, contentWidth, quoteDepth)
+		children, bottom, err := r.layoutBlocks(item.Blocks, contentX, cursor, contentWidth, quoteDepth, listDepth+1)
 		if err != nil {
 			return layoutBlock{}, err
 		}
@@ -311,6 +311,7 @@ func (r *Renderer) layoutListBlock(b block, x, y, width float64, quoteDepth int)
 		items = append(items, layoutListItem{
 			Marker:         marker,
 			UseBullet:      useBullet,
+			BulletFilled:   listDepth == 0,
 			MarkerStyle:    baseStyle,
 			MarkerX:        x,
 			MarkerBaseline: baseline,
@@ -393,7 +394,7 @@ func (r *Renderer) applyInlineStyle(base textStyle, span inlineSpan) textStyle {
 			Family:     FontMono,
 			Size:       base.Size * 0.92,
 			LineHeight: base.LineHeight,
-			Color:      r.theme.Text,
+			Color:      r.theme.InlineText,
 			InlineCode: true,
 		}
 	}
@@ -408,6 +409,35 @@ func (r *Renderer) applyInlineStyle(base textStyle, span inlineSpan) textStyle {
 	}
 
 	return style
+}
+
+func (r *Renderer) resolveStyleFamily(base resolvedTextStyle, family FontFamily) (resolvedTextStyle, error) {
+	if base.Family == family {
+		return base, nil
+	}
+
+	alt := base.textStyle
+	alt.Family = family
+	return r.resolveStyle(alt)
+}
+
+func (r *Renderer) resolvedInlineTokenStyle(base resolvedTextStyle, token string, fallbackRegular bool) (resolvedTextStyle, error) {
+	if token == "" {
+		return base, nil
+	}
+
+	runes := []rune(token)
+	if len(runes) > 0 && isEmojiStart(runes[0]) {
+		if end := consumeEmojiCluster(runes, 0); end == len(runes) {
+			return r.resolveStyleFamily(base, FontEmoji)
+		}
+	}
+
+	if fallbackRegular && hasNonASCII(token) {
+		return r.resolveStyleFamily(base, FontRegular)
+	}
+
+	return base, nil
 }
 
 // wrapInlineSpans 把行内片段转换成可换行 token，再生成最终行集合。
@@ -425,26 +455,60 @@ func (r *Renderer) wrapInlineSpans(spans []inlineSpan, base textStyle, width flo
 		}
 
 		textStyle := r.applyInlineStyle(base, span)
-		if span.Code && r.shouldFallbackCodeText(span.Text) {
-			textStyle.Family = FontRegular
-		}
 		style, err := r.resolveStyle(textStyle)
 		if err != nil {
 			return nil, err
 		}
 
 		if span.Code {
+			fallbackRegular := r.shouldFallbackCodeText(span.Text)
+			if !hasEmojiCluster(span.Text) {
+				tokenStyle := style
+				if fallbackRegular {
+					tokenStyle, err = r.resolveStyleFamily(style, FontRegular)
+					if err != nil {
+						return nil, err
+					}
+				}
+				tokens = append(tokens, spanToken{
+					Text:  span.Text,
+					Style: tokenStyle,
+				})
+				continue
+			}
+
+			for _, token := range splitCodeTokens(span.Text) {
+				tokenStyle, err := r.resolvedInlineTokenStyle(style, token, fallbackRegular)
+				if err != nil {
+					return nil, err
+				}
+				tokens = append(tokens, spanToken{
+					Text:  token,
+					Style: tokenStyle,
+				})
+			}
+			continue
+		}
+
+		// goldmark 在相邻 inline 元素之间可能给出“仅包含空白”的独立文本节点。
+		// 这里直接保留这个空白，而不是依赖普通分词逻辑去推断。
+		if strings.TrimSpace(span.Text) == "" {
 			tokens = append(tokens, spanToken{
-				Text:  span.Text,
+				Text:  " ",
 				Style: style,
+				Space: true,
 			})
 			continue
 		}
 
 		for _, token := range splitPlainTokens(span.Text) {
+			tokenStyle, err := r.resolvedInlineTokenStyle(style, token, false)
+			if err != nil {
+				return nil, err
+			}
 			tokens = append(tokens, spanToken{
 				Text:  token,
-				Style: style,
+				Style: tokenStyle,
 				Space: token == " ",
 			})
 		}
@@ -506,6 +570,22 @@ func (r *Renderer) wrapCodeLine(line string, style, fallback resolvedTextStyle, 
 	var lines []rawLine
 	var frags []layoutFragment
 	lineWidth := 0.0
+
+	emojiStyle := resolvedTextStyle{}
+	emojiStyleReady := false
+
+	ensureEmojiStyle := func() (resolvedTextStyle, error) {
+		if emojiStyleReady {
+			return emojiStyle, nil
+		}
+		alt, err := r.resolveStyleFamily(style, FontEmoji)
+		if err != nil {
+			return resolvedTextStyle{}, err
+		}
+		emojiStyle = alt
+		emojiStyleReady = true
+		return emojiStyle, nil
+	}
 
 	flushLine := func(force bool) {
 		if len(frags) == 0 && !force {
@@ -591,39 +671,34 @@ func (r *Renderer) wrapCodeLine(line string, style, fallback resolvedTextStyle, 
 		}
 	}
 
-	var run []rune
-	runWhitespace := false
-	runFallback := false
-	hasRun := false
+	for _, token := range splitCodeTokens(line) {
+		if token == "" {
+			continue
+		}
 
-	flushRun := func() {
-		if !hasRun {
-			return
+		if strings.TrimSpace(token) == "" {
+			addWhitespace(token)
+			continue
 		}
-		text := string(run)
-		if runWhitespace {
-			addWhitespace(text)
-		} else if runFallback {
-			addText(text, fallback)
-		} else {
-			addText(text, style)
-		}
-		run = run[:0]
-		hasRun = false
-	}
 
-	for _, rn := range line {
-		isWhitespace := rn == ' '
-		usesFallback := useFallback && !isWhitespace && rn > unicode.MaxASCII
-		if hasRun && (isWhitespace != runWhitespace || usesFallback != runFallback) {
-			flushRun()
+		runes := []rune(token)
+		if len(runes) > 0 && isEmojiStart(runes[0]) {
+			if end := consumeEmojiCluster(runes, 0); end == len(runes) {
+				tokenStyle, err := ensureEmojiStyle()
+				if err == nil {
+					addText(token, tokenStyle)
+					continue
+				}
+			}
 		}
-		run = append(run, rn)
-		runWhitespace = isWhitespace
-		runFallback = usesFallback
-		hasRun = true
+
+		if useFallback && hasNonASCII(token) {
+			addText(token, fallback)
+			continue
+		}
+
+		addText(token, style)
 	}
-	flushRun()
 	flushLine(true)
 
 	if len(lines) == 0 {
@@ -895,7 +970,12 @@ func (r *Renderer) drawBlock(dc *gg.Context, block layoutBlock) error {
 				cx := item.MarkerX + 7
 				cy := item.MarkerBaseline - item.MarkerStyle.Ascent*0.35
 				dc.DrawCircle(cx, cy, 3.2)
-				dc.Fill()
+				if item.BulletFilled {
+					dc.Fill()
+				} else {
+					dc.SetLineWidth(1.4)
+					dc.Stroke()
+				}
 			} else {
 				dc.SetFontFace(item.MarkerStyle.Face)
 				dc.DrawString(item.Marker, item.MarkerX, item.MarkerBaseline)

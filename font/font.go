@@ -27,6 +27,23 @@ func LoadWindowsFont(name string) ([]byte, error) {
 	return data, nil
 }
 
+// LoadFirstWindowsFont 依次尝试多个候选名，返回第一个成功加载的系统字体。
+func LoadFirstWindowsFont(names ...string) ([]byte, error) {
+	var lastErr error
+	for _, name := range names {
+		data, err := LoadWindowsFont(name)
+		if err == nil {
+			return data, nil
+		}
+		lastErr = err
+	}
+
+	if lastErr == nil {
+		lastErr = errors.New("font candidates are empty")
+	}
+	return nil, lastErr
+}
+
 func resolveWindowsFontPath(name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
@@ -37,57 +54,95 @@ func resolveWindowsFontPath(name string) (string, error) {
 		return filepath.Clean(name), nil
 	}
 
-	fontDir, err := windowsFontsDir()
+	fontDirs, err := windowsFontsDirs()
 	if err != nil {
 		return "", err
 	}
 
-	for _, candidate := range fontNameCandidates(name) {
-		path := filepath.Join(fontDir, candidate)
-		if _, err := os.Stat(path); err == nil {
-			return path, nil
+	for _, fontDir := range fontDirs {
+		for _, candidate := range fontNameCandidates(name) {
+			path := filepath.Join(fontDir, candidate)
+			if _, err := os.Stat(path); err == nil {
+				return path, nil
+			}
 		}
-	}
-
-	entries, err := os.ReadDir(fontDir)
-	if err != nil {
-		return "", fmt.Errorf("read windows fonts dir %q: %w", fontDir, err)
 	}
 
 	targetName := strings.ToLower(name)
 	targetBase := strings.ToLower(strings.TrimSuffix(name, filepath.Ext(name)))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
+	for _, fontDir := range fontDirs {
+		entries, err := os.ReadDir(fontDir)
+		if err != nil {
+			return "", fmt.Errorf("read windows fonts dir %q: %w", fontDir, err)
 		}
 
-		entryName := entry.Name()
-		if strings.ToLower(entryName) == targetName {
-			return filepath.Join(fontDir, entryName), nil
-		}
-		if strings.ToLower(strings.TrimSuffix(entryName, filepath.Ext(entryName))) == targetBase {
-			return filepath.Join(fontDir, entryName), nil
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+
+			entryName := entry.Name()
+			if strings.ToLower(entryName) == targetName {
+				return filepath.Join(fontDir, entryName), nil
+			}
+			if strings.ToLower(strings.TrimSuffix(entryName, filepath.Ext(entryName))) == targetBase {
+				return filepath.Join(fontDir, entryName), nil
+			}
 		}
 	}
 
-	return "", fmt.Errorf("windows font %q not found in %q", name, fontDir)
+	return "", fmt.Errorf("windows font %q not found in %q", name, strings.Join(fontDirs, ", "))
 }
 
-func windowsFontsDir() (string, error) {
+func windowsFontsDirs() ([]string, error) {
 	winDir := strings.TrimSpace(os.Getenv("WINDIR"))
 	if winDir == "" {
 		winDir = `C:\Windows`
 	}
 
-	fontDir := filepath.Join(winDir, "Fonts")
-	info, err := os.Stat(fontDir)
-	if err != nil {
-		return "", fmt.Errorf("stat windows fonts dir %q: %w", fontDir, err)
+	var dirs []string
+	seen := map[string]struct{}{}
+
+	addDir := func(dir string) error {
+		if strings.TrimSpace(dir) == "" {
+			return nil
+		}
+		dir = filepath.Clean(dir)
+		if _, ok := seen[dir]; ok {
+			return nil
+		}
+
+		info, err := os.Stat(dir)
+		if err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return fmt.Errorf("stat windows fonts dir %q: %w", dir, err)
+		}
+		if !info.IsDir() {
+			return fmt.Errorf("windows fonts dir %q is not a directory", dir)
+		}
+
+		seen[dir] = struct{}{}
+		dirs = append(dirs, dir)
+		return nil
 	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("windows fonts dir %q is not a directory", fontDir)
+
+	if err := addDir(filepath.Join(winDir, "Fonts")); err != nil {
+		return nil, err
 	}
-	return fontDir, nil
+
+	localAppData := strings.TrimSpace(os.Getenv("LOCALAPPDATA"))
+	if localAppData != "" {
+		if err := addDir(filepath.Join(localAppData, "Microsoft", "Windows", "Fonts")); err != nil {
+			return nil, err
+		}
+	}
+
+	if len(dirs) == 0 {
+		return nil, errors.New("no windows fonts directory found")
+	}
+	return dirs, nil
 }
 
 func fontNameCandidates(name string) []string {

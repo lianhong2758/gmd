@@ -15,6 +15,8 @@ const sampleMarkdown = `# Markdown 转图片示例
 
 这是一个基于 **goldmark** 和 ` + "`FloatTech/gg`" + ` 的纯 Go Markdown 图片渲染器。
 
+Emoji 示例：😀 🚀 🎉 👍
+
 它支持以下常见语法：
 
 - 标题
@@ -63,7 +65,7 @@ func main() {
 		fontIndex = flag.Int("font-index", 0, "正文字体集合索引，TTC/OTC 时可选")
 		mono      = flag.String("mono-font", "", "外部代码等宽字体路径，支持 TTF/OTF/TTC/OTC，设置后优先使用")
 		monoIndex = flag.Int("mono-font-index", 0, "代码字体集合索引，TTC/OTC 时可选")
-		theme     = flag.String("theme", string(gmd.ThemeDefault), "内置主题，可选: "+strings.Join(gmd.ThemeNames(), ", "))
+		theme     = flag.String("theme", string(gmd.ThemeDefault), "内置主题，可选: "+strings.Join(gmd.ThemeNames(), "，"))
 	)
 	flag.Parse()
 
@@ -99,7 +101,7 @@ func main() {
 		}
 		fontdata = b
 	} else {
-		fontdata, err = markfont.LoadWindowsFont("simsun.ttc")
+		fontdata, err = markfont.LoadWindowsFont("MaokenZhuyuanTi.ttf")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "未找到字体 simsun.ttc , err: %v\n", err)
 		}
@@ -113,15 +115,21 @@ func main() {
 		}
 		monodata = b
 	}
+	emojidata, err := markfont.LoadFirstWindowsFont("seguiemj.ttf", "seguiemj", "seguisym.ttf", "seguisym")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "未找到 emoji 字体，将回退到正文字体, err: %v\n", err)
+	}
 
 	r, err := gmd.New(gmd.Options{
-		ThemeName:     themeName,
-		Width:         *width,
-		BaseDir:       baseDir,
-		Font:          fontdata,
-		FontIndex:     *fontIndex,
-		MonoFont:      monodata,
-		MonoFontIndex: *monoIndex,
+		ThemeName:      themeName,
+		Width:          *width,
+		BaseDir:        baseDir,
+		Font:           fontdata,
+		FontIndex:      *fontIndex,
+		MonoFont:       monodata,
+		MonoFontIndex:  *monoIndex,
+		EmojiFont:      emojidata,
+		EmojiFontIndex: 0,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "初始化渲染器失败: %v\n", err)

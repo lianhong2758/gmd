@@ -37,7 +37,9 @@ type Theme struct {
 	QuoteFill  color.Color
 	CodeFill   color.Color
 	CodeText   color.Color
+	CodeLabel  color.Color
 	InlineCode color.Color
+	InlineText color.Color
 }
 
 // ThemeName 是内置主题的配置名。
@@ -46,11 +48,12 @@ type ThemeName string
 const (
 	ThemeDefault    ThemeName = "default"
 	ThemeGitHubDark ThemeName = "github-dark"
+	ThemeVSCodeDark ThemeName = "vscode-dark"
 )
 
 // ThemeNames 返回所有可用的内置主题名，方便给 CLI 或上层配置展示帮助信息。
 func ThemeNames() []string {
-	return []string{string(ThemeDefault), string(ThemeGitHubDark)}
+	return []string{string(ThemeDefault), string(ThemeGitHubDark), string(ThemeVSCodeDark)}
 }
 
 // ParseThemeName 把外部输入规范化成受支持的主题名。
@@ -61,7 +64,7 @@ func ParseThemeName(name string) (ThemeName, error) {
 	}
 
 	switch normalized {
-	case ThemeDefault, ThemeGitHubDark:
+	case ThemeDefault, ThemeGitHubDark, ThemeVSCodeDark:
 		return normalized, nil
 	default:
 		return "", fmt.Errorf("unknown theme %q, supported themes: %s", name, strings.Join(ThemeNames(), ", "))
@@ -105,7 +108,45 @@ func ThemeByName(name ThemeName, width int) Theme {
 			QuoteFill:          rgb(22, 27, 34),
 			CodeFill:           rgb(22, 27, 34),
 			CodeText:           rgb(230, 237, 243),
+			CodeLabel:          rgb(139, 148, 158),
 			InlineCode:         rgb(45, 51, 59),
+			InlineText:         rgb(230, 237, 243),
+		}
+	case ThemeVSCodeDark:
+		return Theme{
+			Width:              width,
+			Padding:            52,
+			BlockGap:           24,
+			ParagraphGap:       18,
+			ListItemGap:        8,
+			QuotePaddingX:      18,
+			QuotePaddingY:      14,
+			QuoteBarWidth:      5,
+			ListIndent:         34,
+			CodePaddingX:       20,
+			CodePaddingY:       18,
+			InlineCodePaddingX: 8,
+			InlineCodePaddingY: 4,
+			RuleSpacing:        18,
+			BaseFontSize:       22,
+			BaseLineHeight:     1.6,
+			CodeLineHeight:     1.5,
+			HeadingScale:       [6]float64{1.90, 1.60, 1.35, 1.18, 1.08, 1.00},
+			Radius:             8,
+			// 这组颜色读取自本机当前 VSCode 主题配置：
+			// workbench.colorTheme = "One Dark Pro Darker"
+			Background: rgb(35, 39, 46),    // editor.background
+			Text:       rgb(171, 178, 191), // editor.foreground
+			MutedText:  rgb(171, 178, 191), // Markdown 引用正文默认继承正文色
+			Link:       rgb(97, 175, 239),  // textLink.foreground
+			Rule:       rgb(62, 68, 82),    // panel.border
+			QuoteBar:   rgb(75, 83, 98),    // textBlockQuote.border
+			QuoteFill:  rgb(46, 52, 64),    // textBlockQuote.background
+			CodeFill:   rgb(49, 54, 63),    // markdown preview pre background
+			CodeText:   rgb(171, 178, 191), // markdown preview pre code color
+			CodeLabel:  rgb(209, 154, 102), // textPreformat.foreground
+			InlineCode: rgb(58, 63, 75),    // markdown preview inline code background
+			InlineText: rgb(255, 255, 255), // markdown preview inline code text
 		}
 	default:
 		return Theme{
@@ -137,7 +178,9 @@ func ThemeByName(name ThemeName, width int) Theme {
 			QuoteFill:          rgb(241, 245, 249),
 			CodeFill:           rgb(15, 23, 42),
 			CodeText:           rgb(226, 232, 240),
+			CodeLabel:          rgb(71, 85, 105),
 			InlineCode:         rgb(226, 232, 240),
+			InlineText:         rgb(15, 23, 42),
 		}
 	}
 }
@@ -150,4 +193,9 @@ func DefaultTheme(width int) Theme {
 // GitHubDarkTheme 提供偏 GitHub Markdown 的深色主题。
 func GitHubDarkTheme(width int) Theme {
 	return ThemeByName(ThemeGitHubDark, width)
+}
+
+// VSCodeDarkTheme 提供偏 VSCode Markdown 预览的深色主题。
+func VSCodeDarkTheme(width int) Theme {
+	return ThemeByName(ThemeVSCodeDark, width)
 }

@@ -31,18 +31,21 @@ const (
 	FontItalic     FontFamily = "italic"
 	FontBoldItalic FontFamily = "bolditalic"
 	FontMono       FontFamily = "mono"
+	FontEmoji      FontFamily = "emoji"
 )
 
 // Options 是渲染器初始化参数。
 type Options struct {
-	Theme         Theme
-	ThemeName     ThemeName
-	Width         int
-	BaseDir       string // 相对资源路径的基准目录，例如 Markdown 文件所在目录。
-	Font          []byte // 正文字体；支持 TTF/OTF/TTC/OTC，不传则使用 Go 内置默认字体。
-	FontIndex     int    // 正文字体集合索引；单字体文件固定为 0。
-	MonoFont      []byte // 代码字体；支持 TTF/OTF/TTC/OTC，不传则使用 Go 内置等宽字体。
-	MonoFontIndex int    // 代码字体集合索引；单字体文件固定为 0。
+	Theme          Theme
+	ThemeName      ThemeName
+	Width          int
+	BaseDir        string // 相对资源路径的基准目录，例如 Markdown 文件所在目录。
+	Font           []byte // 正文字体；支持 TTF/OTF/TTC/OTC，不传则使用 Go 内置默认字体。
+	FontIndex      int    // 正文字体集合索引；单字体文件固定为 0。
+	MonoFont       []byte // 代码字体；支持 TTF/OTF/TTC/OTC，不传则使用 Go 内置等宽字体。
+	MonoFontIndex  int    // 代码字体集合索引；单字体文件固定为 0。
+	EmojiFont      []byte // Emoji 字体；支持 TTF/OTF/TTC/OTC，不传则回退到正文字体。
+	EmojiFontIndex int    // Emoji 字体集合索引；单字体文件固定为 0。
 }
 
 // Renderer 负责 Markdown 的解析、布局与绘制。
@@ -73,7 +76,14 @@ func New(opts Options) (*Renderer, error) {
 		return nil, err
 	}
 
-	fonts, err := newFontManager(opts.Font, opts.FontIndex, opts.MonoFont, opts.MonoFontIndex)
+	fonts, err := newFontManager(
+		opts.Font,
+		opts.FontIndex,
+		opts.MonoFont,
+		opts.MonoFontIndex,
+		opts.EmojiFont,
+		opts.EmojiFontIndex,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -169,13 +179,23 @@ type fontManager struct {
 	regularIndex int
 	monoData     []byte
 	monoIndex    int
+	emojiData    []byte
+	emojiIndex   int
 	customMono   bool
 	regularFont  *opentype.Font
 	monoFont     *opentype.Font
+	emojiFont    *opentype.Font
 	faces        map[string]font.Face
 }
 
-func newFontManager(customFont []byte, customFontIndex int, customMonoFont []byte, customMonoFontIndex int) (*fontManager, error) {
+func newFontManager(
+	customFont []byte,
+	customFontIndex int,
+	customMonoFont []byte,
+	customMonoFontIndex int,
+	customEmojiFont []byte,
+	customEmojiFontIndex int,
+) (*fontManager, error) {
 	regularData := customFont
 	if len(regularData) == 0 {
 		regularData = goregular.TTF
@@ -185,12 +205,19 @@ func newFontManager(customFont []byte, customFontIndex int, customMonoFont []byt
 	if len(monoData) == 0 {
 		monoData = gomono.TTF
 	}
+	emojiData := customEmojiFont
+	if len(emojiData) == 0 {
+		emojiData = regularData
+		customEmojiFontIndex = customFontIndex
+	}
 
 	return &fontManager{
 		regularData:  regularData,
 		regularIndex: customFontIndex,
 		monoData:     monoData,
 		monoIndex:    customMonoFontIndex,
+		emojiData:    emojiData,
+		emojiIndex:   customEmojiFontIndex,
 		customMono:   customMono,
 		faces:        make(map[string]font.Face, FaceCacheSize),
 	}, nil
@@ -207,6 +234,7 @@ func (m *fontManager) clear() {
 
 	m.regularFont = nil
 	m.monoFont = nil
+	m.emojiFont = nil
 	clear(m.faces)
 }
 
@@ -245,6 +273,11 @@ func (m *fontManager) parsedFont(family FontFamily) (*opentype.Font, error) {
 		index = m.monoIndex
 		label = "mono font"
 		cached = &m.monoFont
+	} else if family == FontEmoji {
+		data = m.emojiData
+		index = m.emojiIndex
+		label = "emoji font"
+		cached = &m.emojiFont
 	}
 
 	if *cached != nil {
@@ -364,6 +397,105 @@ func isCJK(r rune) bool {
 	return (r >= 0x2E80 && r <= 0x9FFF) || (r >= 0xF900 && r <= 0xFAFF)
 }
 
+func isRegionalIndicator(r rune) bool {
+	return r >= 0x1F1E6 && r <= 0x1F1FF
+}
+
+func isKeycapBase(r rune) bool {
+	return (r >= '0' && r <= '9') || r == '#' || r == '*'
+}
+
+func isEmojiVariationSelector(r rune) bool {
+	return r == 0xFE0E || r == 0xFE0F
+}
+
+func isEmojiJoiner(r rune) bool {
+	return r == 0x200D
+}
+
+func isEmojiKeycapMark(r rune) bool {
+	return r == 0x20E3
+}
+
+func isEmojiRune(r rune) bool {
+	switch {
+	case r >= 0x1F000 && r <= 0x1FAFF:
+		return true
+	case r >= 0x2600 && r <= 0x27BF:
+		return true
+	case r >= 0x2300 && r <= 0x23FF:
+		return true
+	case r >= 0x2B00 && r <= 0x2BFF:
+		return true
+	}
+
+	switch r {
+	case 0x00A9, 0x00AE, 0x203C, 0x2049, 0x2122, 0x2139, 0x3030, 0x303D, 0x3297, 0x3299:
+		return true
+	default:
+		return false
+	}
+}
+
+func isEmojiModifier(r rune) bool {
+	return r >= 0x1F3FB && r <= 0x1F3FF
+}
+
+func isEmojiStart(r rune) bool {
+	return isRegionalIndicator(r) || isKeycapBase(r) || isEmojiRune(r)
+}
+
+func consumeEmojiCluster(runes []rune, start int) int {
+	if start >= len(runes) {
+		return start
+	}
+
+	i := start
+	if isKeycapBase(runes[i]) {
+		i++
+		if i < len(runes) && isEmojiVariationSelector(runes[i]) {
+			i++
+		}
+		if i < len(runes) && isEmojiKeycapMark(runes[i]) {
+			return i + 1
+		}
+		return start
+	}
+
+	if isRegionalIndicator(runes[i]) {
+		i++
+		if i < len(runes) && isRegionalIndicator(runes[i]) {
+			return i + 1
+		}
+		return i
+	}
+
+	if !isEmojiRune(runes[i]) {
+		return start
+	}
+
+	i++
+	for i < len(runes) {
+		switch {
+		case isEmojiVariationSelector(runes[i]), isEmojiModifier(runes[i]):
+			i++
+		case isEmojiJoiner(runes[i]):
+			i++
+			if i >= len(runes) {
+				return i
+			}
+			i++
+			for i < len(runes) && (isEmojiVariationSelector(runes[i]) || isEmojiModifier(runes[i])) {
+				i++
+			}
+		default:
+			return i
+		}
+	}
+
+	return i
+}
+
 func trimRightSpaces(frags []layoutFragment) ([]layoutFragment, float64) {
 	if len(frags) == 0 {
 		return frags, 0
@@ -406,18 +538,35 @@ func splitPlainTokens(text string) []string {
 		}
 	}
 
-	for _, rn := range text {
+	runes := []rune(text)
+	for i := 0; i < len(runes); {
+		rn := runes[i]
 		switch {
 		case unicode.IsSpace(rn):
 			flushWord()
 			pendingSpace = true
+			i++
+		case isEmojiStart(rn):
+			end := consumeEmojiCluster(runes, i)
+			if end > i {
+				flushWord()
+				flushSpace()
+				tokens = append(tokens, string(runes[i:end]))
+				i = end
+				continue
+			}
+			flushSpace()
+			word = append(word, rn)
+			i++
 		case isCJK(rn):
 			flushWord()
 			flushSpace()
 			tokens = append(tokens, string(rn))
+			i++
 		default:
 			flushSpace()
 			word = append(word, rn)
+			i++
 		}
 	}
 
@@ -457,6 +606,67 @@ func hasNonASCII(text string) bool {
 
 func (r *Renderer) shouldFallbackCodeText(text string) bool {
 	return !r.fonts.customMono && hasNonASCII(text)
+}
+
+func splitCodeTokens(text string) []string {
+	if text == "" {
+		return nil
+	}
+
+	var tokens []string
+	runes := []rune(text)
+	start := 0
+	i := 0
+
+	flush := func(end int) {
+		if end > start {
+			tokens = append(tokens, string(runes[start:end]))
+		}
+		start = end
+	}
+
+	for i < len(runes) {
+		if unicode.IsSpace(runes[i]) {
+			flush(i)
+			j := i + 1
+			for j < len(runes) && unicode.IsSpace(runes[j]) {
+				j++
+			}
+			tokens = append(tokens, string(runes[i:j]))
+			i = j
+			start = j
+			continue
+		}
+
+		if isEmojiStart(runes[i]) {
+			end := consumeEmojiCluster(runes, i)
+			if end > i {
+				flush(i)
+				tokens = append(tokens, string(runes[i:end]))
+				i = end
+				start = end
+				continue
+			}
+		}
+
+		i++
+	}
+
+	flush(len(runes))
+	return tokens
+}
+
+func hasEmojiCluster(text string) bool {
+	runes := []rune(text)
+	for i := 0; i < len(runes); i++ {
+		if !isEmojiStart(runes[i]) {
+			continue
+		}
+		if end := consumeEmojiCluster(runes, i); end > i {
+			return true
+		}
+	}
+	return false
 }
 
 func codeColumnWidth(rn rune) int {

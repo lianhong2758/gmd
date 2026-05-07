@@ -4,7 +4,7 @@
 
 - Markdown 解析基于 `github.com/yuin/goldmark`
 - 绘图基于 `github.com/FloatTech/gg`
-- 内置 `default` 和 `github-dark` 两套主题
+- 内置 `default`、`github-dark` 和 `vscode-dark` 三套主题
 - 采用“两阶段布局 + 一次性绘制”的渲染流程
 
 ### 项目目标
@@ -44,12 +44,19 @@ go run ./cmd -in ./example.md -out ./output/example.png
 go run ./cmd -in ./example.md -out ./output/example-dark.png -theme github-dark
 ```
 
+切换到 VSCode 风格深色主题：
+
+```cmd
+go run ./cmd -in ./example.md -out ./output/example-vscode-dark.png -theme vscode-dark
+```
+
 ### 字体说明
 
-- `gmd.Options.Font` 和 `gmd.Options.MonoFont` 支持传入 `TTF / OTF / TTC / OTC` 字体数据
-- `gmd.Options.FontIndex` 和 `gmd.Options.MonoFontIndex` 用于选择字体集合中的第几个字体，单字体文件固定为 `0`
+- `gmd.Options.Font`、`gmd.Options.MonoFont` 和 `gmd.Options.EmojiFont` 支持传入 `TTF / OTF / TTC / OTC` 字体数据
+- `gmd.Options.FontIndex`、`gmd.Options.MonoFontIndex` 和 `gmd.Options.EmojiFontIndex` 用于选择字体集合中的第几个字体，单字体文件固定为 `0`
 - 未传入正文字体时，使用 Go 内置默认字体，内置字体不支持中文
 - 未传入代码字体时，使用 Go 内置等宽字体
+- 未传入 emoji 字体时，回退到正文字体
 
 注意：
 
@@ -77,6 +84,8 @@ go run ./cmd -in ./example.md -out ./output/example.png -font C:\Windows\Fonts\m
 ### Windows 系统字体
 
 `font` 包提供了 `LoadWindowsFont`，可以直接从 Windows 系统字体目录加载字体文件。
+
+如果想优先尝试多个候选字体，可以使用 `LoadFirstWindowsFont`，例如按顺序尝试 `Segoe UI Emoji`、`Segoe UI Symbol`。
 
 示例：
 
