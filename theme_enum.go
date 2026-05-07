@@ -32,6 +32,7 @@ const (
 	ThemeSolarizedDark  ThemeName = "solarized-dark"
 	ThemeSolarizedLight ThemeName = "solarized-light"
 	ThemeToothpaste     ThemeName = "toothpaste"
+	ThemeVueLight       ThemeName = "vue-light"
 )
 
 var builtinThemeOrder = []ThemeName{
@@ -62,6 +63,7 @@ var builtinThemeOrder = []ThemeName{
 	ThemeSolarizedDark,
 	ThemeSolarizedLight,
 	ThemeToothpaste,
+	ThemeVueLight,
 }
 
 var builtinThemeConfigs = map[ThemeName]Theme{
@@ -928,5 +930,37 @@ var builtinThemeConfigs = map[ThemeName]Theme{
 		CodeLabel:          rgb(191, 191, 191),
 		InlineCode:         rgb(18, 24, 27),
 		InlineText:         rgb(168, 176, 181),
+	},
+	ThemeVueLight: {
+		Padding:            48,
+		BlockGap:           24,
+		ParagraphGap:       18,
+		ListItemGap:        8,
+		QuotePaddingX:      18,
+		QuotePaddingY:      14,
+		QuoteBarWidth:      5,
+		ListIndent:         34,
+		CodePaddingX:       20,
+		CodePaddingY:       18,
+		InlineCodePaddingX: 8,
+		InlineCodePaddingY: 4,
+		RuleSpacing:        18,
+		BaseFontSize:       22,
+		BaseLineHeight:     1.60,
+		CodeLineHeight:     1.45,
+		HeadingScale:       [6]float64{1.80, 1.55, 1.35, 1.20, 1.10, 1.00},
+		Radius:             6,
+		Background:         rgb(255, 255, 255),
+		Text:               rgb(52, 73, 94),
+		MutedText:          rgb(119, 119, 119),
+		Link:               rgb(66, 185, 131),
+		Rule:               rgb(231, 231, 231),
+		QuoteBar:           rgb(66, 185, 131),
+		QuoteFill:          rgb(236, 248, 243),
+		CodeFill:           rgb(248, 248, 248),
+		CodeText:           rgb(78, 135, 170),
+		CodeLabel:          rgb(180, 101, 77),
+		InlineCode:         rgb(248, 248, 248),
+		InlineText:         rgb(9, 132, 79),
 	},
 }
