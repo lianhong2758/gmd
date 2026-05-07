@@ -101,7 +101,7 @@ func main() {
 		}
 		fontdata = b
 	} else {
-		fontdata, err = markfont.LoadWindowsFont("MaokenZhuyuanTi.ttf")
+		fontdata, err = markfont.LoadWindowsFont("simsun.ttc")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "未找到字体 simsun.ttc , err: %v\n", err)
 		}
